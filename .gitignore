@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+
+.venv/
+venv/
+env/
+
+.env
+
+.ipynb_checkpoints/
+
+gradio_cached_examples/
+flagged/
+
+.DS_Store
+.python-version
+uv.lock

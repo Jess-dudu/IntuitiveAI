@@ -1,14 +1,13 @@
 import gradio as gr
-import spaces
-import torch
 
-zero = torch.Tensor([0]).cuda()
-print(zero.device) # <-- 'cpu' 🤔
+from pages import gpu_demo
 
-@spaces.GPU
-def greet(n):
-    print(zero.device) # <-- 'cuda:0' 🤗
-    return f"Hello {zero + n} Tensor"
+with gr.Blocks(title="IntuitiveAI") as demo:
+    gr.Markdown("# Home")
+    gr.Markdown("Welcome. Use the navbar above to visit other pages.")
 
-demo = gr.Interface(fn=greet, inputs=gr.Number(), outputs=gr.Text())
-demo.launch()
+with demo.route("GPU Demo", "/gpu-demo"):
+    gpu_demo.demo.render()
+
+if __name__ == "__main__":
+    demo.launch()
