@@ -1,14 +1,29 @@
 import gradio as gr
 
 PAGES = [
-    ("Home", "/"),
     ("GPU Demo", "/gpu-demo"),
 ]
 
+NAVBAR_CSS = """
+.left-navbar {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    height: 100vh;
+    width: 220px;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 8px;
+    padding: 20px 12px;
+    overflow-y: auto;
+    border-right: 1px solid var(--border-color-primary);
+}
 
-def sidebar():
-    gr.Navbar(visible=False)
-    with gr.Sidebar(position="left"):
-        gr.Markdown("## Navigation")
-        for label, path in PAGES:
-            gr.Markdown(f"[{label}]({path})")
+.gradio-container {
+    margin-left: 220px !important;
+}
+"""
+
+
+def navbar(main_page_name="Home"):
+    return gr.Navbar(value=PAGES, main_page_name=main_page_name, elem_classes=["left-navbar"])
