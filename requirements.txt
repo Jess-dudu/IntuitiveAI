@@ -1,3 +1,5 @@
 gradio
 torch
 spaces
+numpy
+matplotlib
