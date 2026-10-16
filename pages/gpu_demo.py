@@ -2,10 +2,11 @@ import gradio as gr
 import spaces
 import torch
 
-zero = torch.Tensor([0]).cuda()
+# zero = torch.Tensor([0]).cuda()
+zero = torch.Tensor([0])
 print(zero.device) # <-- 'cpu' 🤔
 
-@spaces.GPU
+# @spaces.GPU
 def greet(n):
     print(zero.device) # <-- 'cuda:0' 🤗
     return f"Hello {zero + n} Tensor"
