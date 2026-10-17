@@ -1,9 +1,9 @@
 """
-Mandelbrot on GPU — thousands of pixels, computed all at once.
+Mandelbrot in parallel — GPU vs CPU render race.
 
 Every pixel of the Mandelbrot set is an independent computation: the perfect
-GPU workload. This page renders the same fractal on GPU vs CPU and shows the
-timing gap — the same gap that makes deep learning possible.
+GPU workload. This page renders it on GPU vs CPU and shows the timing gap —
+the same gap that makes deep learning possible.
 
 Drop at pages/mandelbrot.py, wire in app.py:
 
@@ -23,6 +23,7 @@ import matplotlib
 
 matplotlib.use("Agg")  # headless-safe on Spaces
 import matplotlib.pyplot as plt
+import math
 import numpy as np
 import torch
 
@@ -37,16 +38,18 @@ except Exception:  # local dev without the `spaces` package
 
 W, H = 800, 600  # render resolution
 
-PRESETS = {
+VIEW_PRESETS = {
     "Full set": (-0.5, 0.0, 3.2),
     "Seahorse Valley": (-0.745, 0.112, 0.4),
     "Antenna tip": (-1.768, 0.0, 0.2),
 }
 
+CMAPS = ["turbo", "nipy_spectral", "hsv", "plasma", "inferno"]
+
 
 # ------------------------------------------------------- core math
-def mandelbrot_iters(cx, cy, width, max_iter, device):
-    """Iteration counts per pixel, vectorized over the whole grid."""
+def fractal_iters(cx, cy, width, max_iter, device):
+    """Smooth iteration counts per pixel, vectorized over the whole grid."""
     hh = width * H / W / 2.0
     xs = torch.linspace(cx - width / 2.0, cx + width / 2.0, W, device=device)
     ys = torch.linspace(cy + hh, cy - hh, H, device=device)  # row 0 = top
@@ -54,12 +57,17 @@ def mandelbrot_iters(cx, cy, width, max_iter, device):
     z = torch.zeros_like(c)
     iters = torch.zeros(c.shape, dtype=torch.float32, device=device)
     alive = torch.ones(c.shape, dtype=torch.bool, device=device)
+    log_2 = math.log(2.0)
     for i in range(1, max_iter + 1):
         z = torch.where(alive, z * z + c, z)
-        escaped = z.abs() > 2.0
+        az = z.abs()
+        escaped = az > 2.0
         newly = escaped & alive
         if bool(newly.any()):
-            iters[newly] = float(i)
+            az_new = torch.clamp(az[newly], max=1e10)
+            # continuous iteration count: n + 1 - log(log|z|)/log(2)
+            smooth = float(i) + 1.0 - torch.log(torch.log(az_new)) / log_2
+            iters[newly] = smooth
             alive &= ~escaped
         if not bool(alive.any()):
             break
@@ -82,20 +90,25 @@ def render_gpu(cx, cy, width, max_iter):
     if not torch.cuda.is_available():
         return None, None
     iters, ms = _timed_ms(
-        lambda: mandelbrot_iters(cx, cy, width, max_iter, "cuda"))
+        lambda: fractal_iters(cx, cy, width, max_iter, "cuda"))
     return iters.cpu().numpy(), ms
 
 
 def render_cpu(cx, cy, width, max_iter):
     iters, ms = _timed_ms(
-        lambda: mandelbrot_iters(cx, cy, width, max_iter, "cpu"))
+        lambda: fractal_iters(cx, cy, width, max_iter, "cpu"))
     return iters.numpy(), ms
 
 
 # ------------------------------------------------------- presentation
-def colorize(iters, max_iter):
-    t = np.clip(iters / max_iter, 0.0, 1.0)
-    rgba = plt.get_cmap("turbo")(t)[..., :3]
+def colorize(iters, max_iter, cmap_name="turbo", cycles=2):
+    # Log-normalize: most pixels escape in the first few dozen iterations,
+    # so a linear map wastes ~80% of the colormap on iterations almost no
+    # pixel reaches. Log scale spreads early escapes across the full map.
+    # `cycles` wraps the palette for the classic psychedelic look.
+    t = np.log1p(np.clip(iters, 0, max_iter)) / np.log1p(max_iter)
+    t = (t * cycles) % 1.0
+    rgba = plt.get_cmap(cmap_name)(t)[..., :3]
     rgba[iters >= max_iter] = (0.0, 0.0, 0.0)  # interior = black
     return (rgba * 255).astype(np.uint8)
 
@@ -103,12 +116,12 @@ def colorize(iters, max_iter):
 def plot_timing(cpu_ms, gpu_ms):
     fig, ax = plt.subplots(figsize=(5, 3.0))
     labels, vals, colors = ["CPU"], [cpu_ms], ["#7f7f7f"]
-    title = "render time"
+    title = "Mandelbrot render time"
     if gpu_ms is not None:
         labels.append("GPU")
         vals.append(gpu_ms)
         colors.append("#2ca02c")
-        title = f"render time — GPU {cpu_ms / gpu_ms:.1f}× faster"
+        title = f"Mandelbrot render time — GPU {cpu_ms / gpu_ms:.1f}× faster"
     bars = ax.barh(labels, vals, color=colors)
     ax.set_xscale("log")
     ax.set_xlabel("milliseconds (log scale)")
@@ -121,31 +134,33 @@ def plot_timing(cpu_ms, gpu_ms):
 
 
 def on_preset(preset):
-    if preset in PRESETS:
-        cx, cy, width = PRESETS[preset]
-        return gr.update(value=cx), gr.update(value=cy), \
-            gr.update(value=float(np.log10(width)))
+    if preset in VIEW_PRESETS:
+        cx, cy, width = VIEW_PRESETS[preset]
+        return (gr.update(value=cx), gr.update(value=cy),
+                gr.update(value=float(np.log10(width))))
     return gr.update(), gr.update(), gr.update()
 
 
-def on_render(preset, cx, cy, log_width, max_iter):
-    width, max_iter = 10.0 ** float(log_width), int(max_iter)
-    iters_cpu, cpu_ms = render_cpu(cx, cy, width, max_iter)
-    iters_gpu, gpu_ms = render_gpu(cx, cy, width, max_iter)
+def on_render(preset, cx, cy, log_width, max_iter, cmap_name, cycles):
+    width = 10.0 ** float(log_width)
+    max_iter, cycles = int(max_iter), int(cycles)
+    args = (float(cx), float(cy), width, max_iter)
+    iters_cpu, cpu_ms = render_cpu(*args)
+    iters_gpu, gpu_ms = render_gpu(*args)
     if iters_gpu is None:  # no CUDA here — show CPU render
-        img = colorize(iters_cpu, max_iter)
+        img = colorize(iters_cpu, max_iter, cmap_name, cycles)
         fig = plot_timing(cpu_ms, None)
-        summary = (f"GPU not available in this environment — showing the CPU "
-                   f"render ({cpu_ms:.0f} ms). On the Space this runs on "
-                   f"ZeroGPU via `@spaces.GPU`.")
+        summary = (f"**Mandelbrot set** — GPU not available in this "
+                   f"environment, showing CPU render ({cpu_ms:.0f} ms). On "
+                   f"the Space this runs on ZeroGPU via `@spaces.GPU`.")
     else:
-        img = colorize(iters_gpu, max_iter)
+        img = colorize(iters_gpu, max_iter, cmap_name, cycles)
         fig = plot_timing(cpu_ms, gpu_ms)
         summary = (
-            f"**GPU: {gpu_ms:.0f} ms** · CPU: {cpu_ms:.0f} ms · "
-            f"**speedup: {cpu_ms / gpu_ms:.1f}×** — identical math, the only "
-            f"difference is how many pixels compute at once. "
-            f"({W}×{H} pixels, {max_iter} max iterations)"
+            f"**Mandelbrot set** — **GPU: {gpu_ms:.0f} ms** · "
+            f"CPU: {cpu_ms:.0f} ms · **speedup: {cpu_ms / gpu_ms:.1f}×** — "
+            f"identical math, the only difference is how many pixels compute "
+            f"at once. ({W}×{H} pixels, {max_iter} max iterations)"
         )
     return img, fig, summary
 
@@ -153,13 +168,16 @@ def on_render(preset, cx, cy, log_width, max_iter):
 # ------------------------------------------------------- UI
 with gr.Blocks(title="Mandelbrot GPU") as demo:
     gr.Markdown(
-        "# 🌀 Mandelbrot, in Parallel\n"
+        "# 🌀 The Mandelbrot Set, in Parallel\n"
         "*Every pixel is its own little computation — thousands at once. "
         "That is the entire GPU story, and it is why deep learning runs on them.*"
     )
     with gr.Row():
-        preset = gr.Dropdown(list(PRESETS) + ["Custom"], value="Full set",
+        preset = gr.Dropdown(list(VIEW_PRESETS) + ["Custom"], value="Full set",
                              label="view")
+        cmap = gr.Dropdown(CMAPS, value="turbo", label="colormap")
+        cycles = gr.Slider(1, 5, step=1, value=2, label="color cycles")
+    with gr.Row():
         cx = gr.Number(value=-0.5, label="center x")
         cy = gr.Number(value=0.0, label="center y")
         log_width = gr.Slider(-3, 0.6, step=0.1, value=0.5,
@@ -173,15 +191,14 @@ with gr.Blocks(title="Mandelbrot GPU") as demo:
     summary = gr.Markdown()
     gr.Markdown(
         "### 🔬 Things to try\n"
-        "1. **Push max iterations to 1000 and zoom in** — the CPU visibly "
-        "slows down while the GPU barely notices. That gap is the whole game.\n"
-        "2. **Seahorse Valley preset, then shrink the width** — dive into "
-        "the seahorses. Each zoom level is 10× more pixels doing 10× more work.\n"
-        "3. **Notice the small cases**: at low iterations the gap shrinks — "
-        "the GPU wins on *massive* parallelism, which is exactly what "
-        "neural-network training looks like."
+        "1. **Seahorse Valley, then keep halving the width** — zoom into the "
+        "seahorse's tail and watch new seahorses appear, forever.\n"
+        "2. **Color cycles up to 4** — the classic psychedelic look.\n"
+        "3. **Push max iterations to 1000 and zoom deep** — the CPU visibly "
+        "slows while the GPU barely notices. That gap is the whole game."
     )
 
     preset.change(on_preset, inputs=preset, outputs=[cx, cy, log_width])
-    go.click(on_render, inputs=[preset, cx, cy, log_width, max_iter],
+    go.click(on_render,
+             inputs=[preset, cx, cy, log_width, max_iter, cmap, cycles],
              outputs=[img, timing, summary])
