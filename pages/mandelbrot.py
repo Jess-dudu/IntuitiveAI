@@ -123,8 +123,8 @@ def plot_timing(cpu_ms, gpu_ms):
         colors.append("#2ca02c")
         title = f"Mandelbrot render time — GPU {cpu_ms / gpu_ms:.1f}× faster"
     bars = ax.barh(labels, vals, color=colors)
-    ax.set_xscale("log")
-    ax.set_xlabel("milliseconds (log scale)")
+    ax.set_xlim(0, max(vals) * 1.25)
+    ax.set_xlabel("milliseconds")
     for bar, v in zip(bars, vals):
         ax.text(bar.get_width(), bar.get_y() + bar.get_height() / 2,
                 f"  {v:.0f} ms", va="center", fontsize=11)
