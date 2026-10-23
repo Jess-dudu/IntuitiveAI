@@ -8,4 +8,5 @@ dependencies = [
     "gradio>=6.30.0",
     "spaces>=0.51.3",
     "torch>=2.14.1",
+    "ultralytics>=8.4.184",
 ]
