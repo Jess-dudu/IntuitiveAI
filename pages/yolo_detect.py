@@ -106,6 +106,7 @@ def _detect_rows(results):
             [
                 names[int(box.cls[0])],
                 round(float(box.conf[0]), 3),
+                "-",
                 x1,
                 y1,
                 x2,
@@ -126,9 +127,10 @@ def _pose_rows(results):
     for i in range(n):
         kpt_conf = keypoints.conf[i]
         visible_counts.append(int((kpt_conf > 0.5).sum().item()))
-        mean_conf = round(float(kpt_conf.mean()), 3)
+        mean_kpt = round(float(kpt_conf.mean()), 3)
+        box_conf = round(float(boxes.conf[i]), 3)
         x1, y1, x2, y2 = (int(v) for v in boxes.xyxy[i].tolist())
-        rows.append([f"person {i + 1}", mean_conf, x1, y1, x2, y2])
+        rows.append([f"person {i + 1}", box_conf, f"{mean_kpt:.3f}", x1, y1, x2, y2])
     if rows:
         detail = ", ".join(f"{v}/17" for v in visible_counts)
         return rows, f"{n} people detected (keypoints visible: {detail})"
@@ -151,6 +153,9 @@ with gr.Blocks() as demo:
         "over the whole image outputs every box and class at once. "
         "Pose mode swaps in a pose model that also predicts 17 body keypoints "
         "per person and draws them as a skeleton. "
+        "In Pose mode the table shows both confidences separately: Box conf is "
+        "the number drawn on the image, Keypoint conf is the mean confidence "
+        "of that person's 17 keypoints. "
         "Guess how many objects (or people) are in the image before you hit Detect, "
         "then drag the confidence threshold and watch the count change."
     )
@@ -176,8 +181,8 @@ with gr.Blocks() as demo:
         with gr.Column():
             img_out = gr.Image(label="Detection result")
             table = gr.Dataframe(
-                headers=["Class", "Confidence", "x1", "y1", "x2", "y2"],
-                datatype=["str", "number", "number", "number", "number", "number"],
+                headers=["Class", "Box conf", "Keypoint conf", "x1", "y1", "x2", "y2"],
+                datatype=["str", "number", "str", "number", "number", "number", "number"],
                 label="Detected objects",
             )
             info = gr.Textbox(label="Info")
