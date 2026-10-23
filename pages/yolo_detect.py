@@ -1,9 +1,13 @@
 """
-YOLO object detection - upload an image, see what the model sees.
+YOLO object detection and pose estimation - upload an image, see what
+the model sees.
 
 YOLO frames detection as a single regression problem: one forward pass
 outputs bounding boxes + class probabilities for the whole image at once,
-instead of proposing regions first and classifying them later.
+instead of proposing regions first and classifying them later. The Pose
+mode swaps in a pose model that additionally predicts 17 body keypoints
+per person (nose, eyes, ears, shoulders, elbows, wrists, hips, knees,
+ankles) and draws them as a skeleton.
 
 Drop at pages/yolo_detect.py, wire in app.py:
 
@@ -14,9 +18,10 @@ Drop at pages/yolo_detect.py, wire in app.py:
 
 Needs: ultralytics (pip install ultralytics) + torch + pillow.
 Add `ultralytics` to requirements.txt before deploying.
-Weights (yolo11n.pt, ~5 MB) download automatically on first run.
+Weights (yolo11n.pt and yolo11n-pose.pt, ~5 MB each) download
+automatically on first use of each mode.
 The GPU path uses @spaces.GPU (ZeroGPU); falls back to CPU-only
-if CUDA is unavailable. YOLO11n is fast enough to run on CPU too.
+if CUDA is unavailable. The nano models are fast enough on CPU too.
 """
 
 import time
@@ -35,25 +40,28 @@ except Exception:  # local dev without the `spaces` package
         return fn
 
 
-MODEL_NAME = "yolo11n.pt"  # nano: smallest YOLO11, COCO 80 classes
+MODELS = {
+    "Detection": "yolo11n.pt",  # nano detection, COCO 80 classes
+    "Pose": "yolo11n-pose.pt",  # nano pose, 17 keypoints per person
+}
 SAMPLE_URL = "https://ultralytics.com/images/bus.jpg"
 
-_MODEL = None
+_MODEL_CACHE = {}
 _SAMPLE = None
 
 
-def _get_model():
-    """Lazy-load so importing the page stays cheap; weights download once."""
-    global _MODEL
-    if _MODEL is None:
+def _get_model(mode):
+    """Lazy-load per mode so importing the page stays cheap."""
+    name = MODELS[mode]
+    if name not in _MODEL_CACHE:
         try:
             from ultralytics import YOLO
         except ImportError as exc:
             raise RuntimeError(
                 "ultralytics is not installed; add it to requirements.txt"
             ) from exc
-        _MODEL = YOLO(MODEL_NAME)
-    return _MODEL
+        _MODEL_CACHE[name] = YOLO(name)  # weights download on first use
+    return _MODEL_CACHE[name]
 
 
 def _load_sample():
@@ -68,18 +76,28 @@ def _load_sample():
 
 
 @_gpu
-def detect(image, conf):
+def detect(image, conf, mode):
     """Run YOLO on a PIL image; return annotated image, table, info line."""
     if image is None:
         return None, [], "Upload an image first, or load the sample image"
-    model = _get_model()
+    model = _get_model(mode)
     device = "cuda" if _is_cuda() else "cpu"
     t0 = time.perf_counter()
     results = model.predict(source=image, conf=conf, device=device, verbose=False)[0]
     ms = (time.perf_counter() - t0) * 1000.0
 
     # plot() returns a BGR numpy array; flip channels to RGB for PIL.
+    # In Pose mode it draws boxes plus the skeleton keypoints.
     annotated = Image.fromarray(results.plot()[..., ::-1])
+    if mode == "Pose":
+        rows, summary = _pose_rows(results)
+    else:
+        rows, summary = _detect_rows(results)
+    info = f"{summary} | device {device} | inference {ms:.0f} ms"
+    return annotated, rows, info
+
+
+def _detect_rows(results):
     names = results.names
     rows = []
     for box in results.boxes:
@@ -95,10 +113,26 @@ def detect(image, conf):
             ]
         )
     if rows:
-        info = f"{len(rows)} objects detected | device {device} | inference {ms:.0f} ms"
-    else:
-        info = f"No objects detected (device {device}, {ms:.0f} ms) - try lowering the confidence threshold"
-    return annotated, rows, info
+        return rows, f"{len(rows)} objects detected"
+    return rows, "No objects detected - try lowering the confidence threshold"
+
+
+def _pose_rows(results):
+    rows = []
+    keypoints = results.keypoints
+    boxes = results.boxes
+    n = 0 if keypoints is None else len(keypoints)
+    visible_counts = []
+    for i in range(n):
+        kpt_conf = keypoints.conf[i]
+        visible_counts.append(int((kpt_conf > 0.5).sum().item()))
+        mean_conf = round(float(kpt_conf.mean()), 3)
+        x1, y1, x2, y2 = (int(v) for v in boxes.xyxy[i].tolist())
+        rows.append([f"person {i + 1}", mean_conf, x1, y1, x2, y2])
+    if rows:
+        detail = ", ".join(f"{v}/17" for v in visible_counts)
+        return rows, f"{n} people detected (keypoints visible: {detail})"
+    return rows, "No people detected - try lowering the confidence threshold"
 
 
 def _is_cuda():
@@ -115,7 +149,9 @@ with gr.Blocks() as demo:
     gr.Markdown(
         "YOLO treats object detection as a single regression: one forward pass "
         "over the whole image outputs every box and class at once. "
-        "Guess how many objects are in the image before you hit Detect, "
+        "Pose mode swaps in a pose model that also predicts 17 body keypoints "
+        "per person and draws them as a skeleton. "
+        "Guess how many objects (or people) are in the image before you hit Detect, "
         "then drag the confidence threshold and watch the count change."
     )
     with gr.Row():
@@ -124,6 +160,11 @@ with gr.Blocks() as demo:
                 type="pil", label="Upload image", sources=["upload", "webcam"]
             )
             sample_btn = gr.Button("Load sample image (street scene)")
+            mode = gr.Radio(
+                ["Detection", "Pose"],
+                value="Detection",
+                label="Mode",
+            )
             conf = gr.Slider(
                 0.05,
                 0.95,
@@ -142,4 +183,6 @@ with gr.Blocks() as demo:
             info = gr.Textbox(label="Info")
 
     sample_btn.click(fn=_load_sample, outputs=img_in)
-    run_btn.click(fn=detect, inputs=[img_in, conf], outputs=[img_out, table, info])
+    run_btn.click(
+        fn=detect, inputs=[img_in, conf, mode], outputs=[img_out, table, info]
+    )
