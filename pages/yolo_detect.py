@@ -167,7 +167,7 @@ with gr.Blocks() as demo:
             sample_btn = gr.Button("Load sample image (street scene)")
             mode = gr.Radio(
                 ["Detection", "Pose"],
-                value="Detection",
+                value="Pose",
                 label="Mode",
             )
             conf = gr.Slider(
