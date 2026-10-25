@@ -5,8 +5,8 @@ from pages import mandelbrot
 from pages import yolo_detect
 
 with gr.Blocks(title="IntuitiveAI") as demo:
-    gr.Markdown("# Home")
-    gr.Markdown("Welcome to Intuitive AI. Use the navigation bar above to load different demos...")
+    gr.Markdown("# Welcome to IntuitiveAI Space")
+    gr.Markdown("This space uses Gradio and ZeroGPU to run some demos to illustrate AI concepts. Use the navigation bar above to load different demos...")
 
 with demo.route("GPU Demo", "/gpu-demo"):
     gpu_demo.demo.render()
