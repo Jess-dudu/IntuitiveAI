@@ -6,7 +6,7 @@ from pages import yolo_detect
 
 with gr.Blocks(title="IntuitiveAI") as demo:
     gr.Markdown("# Home")
-    gr.Markdown("Welcome. Use the navbar above to visit other pages.")
+    gr.Markdown("Welcome to Intuitive AI. Use the navigation bar above to load different demos...")
 
 with demo.route("GPU Demo", "/gpu-demo"):
     gpu_demo.demo.render()
@@ -18,4 +18,4 @@ with demo.route("YOLO Detection", "/yolo"):
     yolo_detect.demo.render()
     
 if __name__ == "__main__":
-    demo.launch()
+    demo.launch(server_name="0.0.0.0")
