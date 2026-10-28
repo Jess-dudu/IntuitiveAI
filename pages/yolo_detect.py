@@ -41,8 +41,8 @@ except Exception:  # local dev without the `spaces` package
 
 
 MODELS = {
-    "Detection": "yolo11n.pt",  # nano detection, COCO 80 classes
-    "Pose": "yolo11n-pose.pt",  # nano pose, 17 keypoints per person
+    "Detection": "yolo26n.pt",  # nano detection, COCO 80 classes
+    "Pose": "yolo26n-pose.pt",  # nano pose, 17 keypoints per person
 }
 SAMPLE_URL = "https://ultralytics.com/images/bus.jpg"
 

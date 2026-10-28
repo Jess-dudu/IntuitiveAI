@@ -2,6 +2,7 @@ import gradio as gr
 
 from pages import gpu_demo
 from pages import mandelbrot
+from pages import mlp_playground
 from pages import yolo_detect
 
 with gr.Blocks(title="IntuitiveAI") as demo:
@@ -13,6 +14,9 @@ with demo.route("GPU Demo", "/gpu-demo"):
 
 with demo.route("Mandelbrot GPU", "/mandelbrot"):
     mandelbrot.demo.render()
+
+with demo.route("MLP Playground", "/mlp-playground"):
+    mlp_playground.demo.render()
 
 with demo.route("YOLO Detection", "/yolo"):
     yolo_detect.demo.render()
