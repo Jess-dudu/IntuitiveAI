@@ -149,6 +149,7 @@ def _is_cuda():
 # ------------------------------------------------------------- UI
 with gr.Blocks() as demo:
     gr.Markdown(
+        "# YOLO Detector v26 \n"
         "YOLO treats object detection as a single regression: one forward pass "
         "over the whole image outputs every box and class at once. "
         "Pose mode swaps in a pose model that also predicts 17 body keypoints "
