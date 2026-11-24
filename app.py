@@ -9,7 +9,7 @@ with gr.Blocks(title="IntuitiveAI") as demo:
     gr.Markdown("# Welcome to IntuitiveAI Space")
     gr.Markdown("This space uses Gradio and ZeroGPU to run some demos to illustrate AI concepts. Use the navigation bar above to load different demos...")
 
-with demo.route("GPU Demo", "/gpu-demo"):
+with demo.route("GPU Test", "/gpu-demo"):
     gpu_demo.demo.render()
 
 with demo.route("Mandelbrot GPU", "/mandelbrot"):
