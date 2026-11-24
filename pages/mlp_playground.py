@@ -37,8 +37,8 @@ except Exception:  # no `spaces` package (local dev) -> plain call, no error
 
 
 _FEATURES = ["x", "y", "x^2", "y^2", "x*y", "sin(x)", "sin(y)"]
-_DATASETS = ["Circle", "XOR", "Spiral", "Gaussian"]
-_ACTIVATIONS = ["tanh", "relu", "sigmoid"]
+_DATASETS = ["One vs One", "One vs Everything Else", "XOR"]
+_ACTIVATIONS = ["relu", "tanh", "sigmoid"]
 _ACT = {"tanh": torch.nn.Tanh, "relu": torch.nn.ReLU, "sigmoid": torch.nn.Sigmoid}
 _COLORS = ["#1f77b4", "#ff8c00"]
 
@@ -48,29 +48,27 @@ def _generate(dataset, noise, test_ratio):
     """Return (x_train, y_train, x_test, y_test), all in about [-1, 1]."""
     rng = np.random.default_rng(0)
     n = 400
-    if dataset == "Circle":
-        xy = rng.uniform(-1.0, 1.0, size=(n, 2))
-        r = np.sqrt((xy ** 2).sum(axis=1))
-        y = (r < 0.6).astype(int)
+    if dataset == "One vs Everything Else":
+        # Notebook geometry, scaled to fit the [-1, 1] box and tightened
+        # for a cleaner gap: center blob N(0, 0.15), ring radius
+        # uniform in [0.7, 1.0]. No line can separate them; a linear
+        # layer's loss sticks near ln 2 and its weights collapse
+        # toward 0.
+        m = n // 2
+        xy_blob = rng.normal(0.0, 0.15, size=(m, 2))
+        r = rng.uniform(0.7, 1.0, size=m)
+        theta = rng.uniform(0.0, 2.0 * np.pi, size=m)
+        xy_ring = np.stack([r * np.cos(theta), r * np.sin(theta)], axis=1)
+        xy = np.vstack([xy_blob, xy_ring])
+        y = np.array([1] * m + [0] * m)
     elif dataset == "XOR":
         xy = rng.uniform(-1.0, 1.0, size=(n, 2))
         y = (xy[:, 0] * xy[:, 1] > 0).astype(int)
-    elif dataset == "Spiral":
-        m = n // 2
-        t = rng.uniform(0.0, 3.0 * np.pi, size=m)
-        r = t / (3.0 * np.pi)
-        xs, ys, labels = [], [], []
-        for k in (0, 1):
-            xs.append(r * np.cos(t + k * np.pi))
-            ys.append(r * np.sin(t + k * np.pi))
-            labels.append(np.full(m, k))
-        xy = np.stack([np.concatenate(xs), np.concatenate(ys)], axis=1)
-        y = np.concatenate(labels)
-    else:  # Gaussian
+    else:  # One vs One
         m = n // 2
         xy = np.vstack([
-            rng.normal(-0.6, 0.35, size=(m, 2)),
-            rng.normal(0.6, 0.35, size=(m, 2)),
+            rng.normal(-0.6, 0.25, size=(m, 2)),
+            rng.normal(0.6, 0.25, size=(m, 2)),
         ])
         y = np.array([0] * m + [1] * m)
     if noise > 0:
@@ -285,19 +283,28 @@ def _reset(dataset, noise, test_ratio):
 
 
 # ------------------------------------------------------------ UI
-with gr.Blocks(title="Neural Network Playground") as demo:
+with gr.Blocks(title="MLP Playground") as demo:
     gr.Markdown(
-        "# Neural Network Playground\n"
+        "# Multi-Layer Perceptron (MLP) Playground\n"
         "Pick a dataset, pick features, pick a small network, then train it "
         "and watch the decision boundary form. Click Train repeatedly to keep "
         "training from the current weights; Reset starts over. "
         "In the boundary plot, the background shading is the model's "
         "prediction, filled dots are training points, hollow circles are "
-        "test points, and color is the class."
+        "test points, and color is the class.\n\n"
+        "A single linear layer can only draw one straight line. To separate "
+        "data no line can separate, introduce non-linearity in one of two "
+        "ways:\n"
+        "1. **Non-linear features** - check x^2, y^2, x*y, sin(x) or sin(y) "
+        "below. The model stays linear in the features, but the boundary "
+        "in x1/x2 becomes curved.\n"
+        "2. **Hidden layers with a non-linear activation** - set the hidden "
+        "layer neurons above 0 and pick an activation (ReLU, tanh, "
+        "sigmoid). The network then learns its own curved boundary."
     )
     with gr.Row():
-        dataset = gr.Radio(_DATASETS, value="Spiral", label="Dataset")
-        activation = gr.Radio(_ACTIVATIONS, value="tanh", label="Activation")
+        dataset = gr.Radio(_DATASETS, value="One vs One", label="Dataset")
+        activation = gr.Radio(_ACTIVATIONS, value="relu", label="Activation")
     features = gr.CheckboxGroup(_FEATURES, value=["x", "y"],
                                 label="Input features")
     with gr.Row():
@@ -305,14 +312,14 @@ with gr.Blocks(title="Neural Network Playground") as demo:
         test_ratio = gr.Slider(0.1, 0.5, value=0.3, step=0.05,
                                label="Test fraction")
     with gr.Row():
-        hidden1 = gr.Slider(0, 6, value=4, step=1,
+        hidden1 = gr.Slider(0, 6, value=0, step=1,
                             label="Hidden layer 1 neurons (0 = skip)")
-        hidden2 = gr.Slider(0, 6, value=3, step=1,
+        hidden2 = gr.Slider(0, 6, value=0, step=1,
                             label="Hidden layer 2 neurons (0 = skip)")
     with gr.Row():
-        lr = gr.Slider(0.001, 0.3, value=0.03, step=0.001,
+        lr = gr.Slider(0.001, 0.3, value=0.1, step=0.001,
                        label="Learning rate")
-        epochs = gr.Slider(10, 500, value=100, step=10,
+        epochs = gr.Slider(10, 500, value=500, step=10,
                            label="Epochs per Train click")
     with gr.Row():
         train_btn = gr.Button("Train", variant="primary")
